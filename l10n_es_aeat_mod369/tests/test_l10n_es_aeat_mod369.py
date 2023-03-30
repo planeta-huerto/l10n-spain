@@ -1,3 +1,4 @@
+# Copyright 2022 Planeta Huerto - Juanjo Algaz <jalgaz@gmail.com>
 # License AGPL-3 - See https://www.gnu.org/licenses/agpl-3.0
 
 import logging
@@ -10,7 +11,6 @@ _logger = logging.getLogger('aeat.369')
 
 
 class TestL10nEsAeatMod369Base(TestL10nEsAeatModBase):
-
 
     def setUp(self):
         super().setUp()
@@ -40,7 +40,7 @@ class TestL10nEsAeatMod369Base(TestL10nEsAeatModBase):
             [('name', '=', 'Intra-EU B2C in France (EU-OSS-FR)')])
         fpo.write({
             'oss_regimen': 'union',
-            'outside': True
+            'outside_spain': True
         })
         line_data = {
             "name": "Test for OSS tax",
@@ -55,7 +55,6 @@ class TestL10nEsAeatMod369Base(TestL10nEsAeatModBase):
         }
         self.inv1 = self._invoice_sale_create("2022-11-01", extra_vals)
         self.inv2 = self._invoice_sale_create("2023-01-01", extra_vals)
-
 
         # Create reports
         mod369_form = Form(self.env["l10n.es.aeat.mod369.report"])
@@ -73,22 +72,15 @@ class TestL10nEsAeatMod369Base(TestL10nEsAeatModBase):
             }
         )
 
-    def _check_field_amount(self, report, number, amount):
-        lines = report.tax_line_ids.filtered(lambda x: x.field_number == number)
-        self.assertAlmostEqual(sum(lines.mapped("amount")), amount)
-
     def test_model_369(self):
         self.model369_2022_4t.button_calculate()
         amount_tax = self.inv1.amount_tax
         self.assertTrue(amount_tax)
         self.assertEqual(amount_tax, self.model369_2022_4t.total_amount)
         num_invoices = len(
-            self.model369_2022_4t.tax_line_ids.mapped('move_line_ids').mapped('invoice_id'))
+            self.model369_2022_4t.tax_line_ids.mapped('move_line_ids').mapped(
+                'invoice_id'))
         self.assertEqual(1, num_invoices)
-        # self._check_field_amount(self.model369_2022_4t, , 100)
-
-        # self.assertEqual(1, sum(amount_lines.mapped("amount")))
-        # self._check_field_amount(self.model369, 126, 0)
-        # self.model369_4t.button_calculate()
-        # self._check_field_amount(self.model369_4t, 123, 100)
-        # self._check_field_amount(self.model369_4t, 126, 200)
+        pages_5_6_total = sum(
+            self.model369_2022_4t.total_line_ids.mapped('page_5_6_total'))
+        self.assertEqual(amount_tax, pages_5_6_total)
