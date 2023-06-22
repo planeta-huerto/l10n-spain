@@ -1,19 +1,23 @@
 # Copyright 2013 - Guadaltech - Alberto Martín Cortada
 # Copyright 2015 - AvanzOSC - Ainara Galdona
 # Copyright 2016 Tecnativa - Antonio Espinosa
-# Copyright 2014-2021 Tecnativa - Pedro M. Baeza
 # Copyright 2020 Sygel - Valentin Vinagre
+# Copyright 2014-2023 Tecnativa - Pedro M. Baeza
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html)
 
 from odoo import _, api, exceptions, fields, models
+from odoo.tools import float_compare
 
 _ACCOUNT_PATTERN_MAP = {
     "C": "4700",
     "D": "4700",
+    "V": "4700",
+    "X": "4700",
     "N": "4700",
     "I": "4750",
+    "G": "4750",
+    "U": "4750",
 }
-
 NON_EDITABLE_ON_DONE = {"done": [("readonly", True)]}
 NON_EDITABLE_EXCEPT_DRAFT = {
     "done": [("readonly", True)],
@@ -22,6 +26,15 @@ NON_EDITABLE_EXCEPT_DRAFT = {
     "cancelled": [("readonly", True)],
 }
 EDITABLE_ON_DRAFT = {"draft": [("readonly", False)]}
+ACTIVITY_CODE_DOMAIN = (
+    "["
+    "   '|',"
+    "   ('period_type', '=', False), ('period_type', '=', period_type),"
+    "   '&',"
+    "   '|', ('date_start', '=', False), ('date_start', '<=', date_start),"
+    "   '|', ('date_end', '=', False), ('date_end', '>=', date_end),"
+    "]"
+)
 
 
 class L10nEsAeatMod303Report(models.Model):
@@ -133,7 +146,11 @@ class L10nEsAeatMod303Report(models.Model):
     result_type = fields.Selection(
         selection=[
             ("I", "To enter"),
+            ("G", "To enter - AEAT account"),
+            ("U", "To enter - Bank account debit"),
             ("D", "To return"),
+            ("V", "To return - AEAT account"),
+            ("X", "To return - Foreign bank account"),
             ("C", "To compensate"),
             ("N", "No activity/Zero result"),
         ],
@@ -149,111 +166,111 @@ class L10nEsAeatMod303Report(models.Model):
     )
     allow_posting = fields.Boolean(default=True)
     exonerated_390 = fields.Selection(
-        selection=[("1", u"Exonerado"), ("2", u"No exonerado")],
+        selection=[("1", "Exonerado"), ("2", "No exonerado")],
         default="2",
         required=True,
         states=NON_EDITABLE_EXCEPT_DRAFT,
         compute="_compute_exonerated_390",
         store=True,
         readonly=False,
-        string=u"Exonerado mod. 390",
-        help=u"Exonerado de la Declaración-resumen anual del IVA, modelo 390: "
-        u"Volumen de operaciones (art. 121 LIVA)",
+        string="Exonerado mod. 390",
+        help="Exonerado de la Declaración-resumen anual del IVA, modelo 390: "
+        "Volumen de operaciones (art. 121 LIVA)",
     )
     has_operation_volume = fields.Boolean(
-        string=u"¿Volumen de operaciones?",
+        string="¿Volumen de operaciones?",
         default=True,
         readonly=True,
         states=EDITABLE_ON_DRAFT,
-        help=u"¿Existe volumen de operaciones (art. 121 LIVA)?",
+        help="¿Existe volumen de operaciones (art. 121 LIVA)?",
     )
     has_347 = fields.Boolean(
-        string=u"¿Obligación del 347?",
+        string="¿Obligación del 347?",
         default=True,
         states=NON_EDITABLE_ON_DONE,
-        help=u"Marque la casilla si el sujeto pasivo ha efectuado con alguna "
-        u"persona o entidad operaciones por las que tenga obligación de "
-        u"presentar la declaración anual de operaciones con terceras "
-        u"personas (modelo 347).",
+        help="Marque la casilla si el sujeto pasivo ha efectuado con alguna "
+        "persona o entidad operaciones por las que tenga obligación de "
+        "presentar la declaración anual de operaciones con terceras "
+        "personas (modelo 347).",
     )
     is_voluntary_sii = fields.Boolean(
-        string=u"¿SII voluntario?",
+        string="¿SII voluntario?",
         states=NON_EDITABLE_ON_DONE,
-        help=u"¿Ha llevado voluntariamente los Libros registro del IVA a "
-        u"través de la Sede electrónica de la AEAT durante el ejercicio?",
+        help="¿Ha llevado voluntariamente los Libros registro del IVA a "
+        "través de la Sede electrónica de la AEAT durante el ejercicio?",
     )
     main_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código actividad principal",
+        string="Código actividad principal",
     )
     main_activity_iae = fields.Char(
         states=NON_EDITABLE_ON_DONE,
-        string=u"Epígrafe I.A.E. actividad principal",
+        string="Epígrafe I.A.E. actividad principal",
         size=4,
     )
     other_first_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código 1ª actividad",
+        string="Código 1ª actividad",
     )
     other_first_activity_iae = fields.Char(
-        string=u"Epígrafe I.A.E. 1ª actividad",
+        string="Epígrafe I.A.E. 1ª actividad",
         states=NON_EDITABLE_ON_DONE,
         size=4,
     )
     other_second_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código 2ª actividad",
+        string="Código 2ª actividad",
     )
     other_second_activity_iae = fields.Char(
-        string=u"Epígrafe I.A.E. 2ª actividad",
+        string="Epígrafe I.A.E. 2ª actividad",
         states=NON_EDITABLE_ON_DONE,
         size=4,
     )
     other_third_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código 3ª actividad",
+        string="Código 3ª actividad",
     )
     other_third_activity_iae = fields.Char(
-        string=u"Epígrafe I.A.E. 3ª actividad",
+        string="Epígrafe I.A.E. 3ª actividad",
         states=NON_EDITABLE_ON_DONE,
         size=4,
     )
     other_fourth_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código 4ª actividad",
+        string="Código 4ª actividad",
     )
     other_fourth_activity_iae = fields.Char(
-        string=u"Epígrafe I.A.E. 4ª actividad",
+        string="Epígrafe I.A.E. 4ª actividad",
         states=NON_EDITABLE_ON_DONE,
         size=4,
     )
     other_fifth_activity_code = fields.Many2one(
         comodel_name="l10n.es.aeat.mod303.report.activity.code",
-        domain="[('period_type', '=', period_type)]",
+        domain=ACTIVITY_CODE_DOMAIN,
         states=NON_EDITABLE_ON_DONE,
-        string=u"Código 5ª actividad",
+        string="Código 5ª actividad",
     )
     other_fifth_activity_iae = fields.Char(
-        string=u"Epígrafe I.A.E. 5ª actividad",
+        string="Epígrafe I.A.E. 5ª actividad",
         states=NON_EDITABLE_ON_DONE,
         size=4,
     )
     casilla_88 = fields.Float(
-        string=u"[88] Total volumen operaciones",
+        string="[88] Total volumen operaciones",
         compute="_compute_casilla_88",
-        help=u"Información adicional - Operaciones realizadas en el ejercicio"
-        u" - Total volumen de operaciones ([80]+[81]+[93]+[94]+[83]+[84]"
-        u"+[125]+[126]+[127]+[128]+[86]+[95]+[96]+[97]+[98]-[79]-[99])",
+        help="Información adicional - Operaciones realizadas en el ejercicio"
+        " - Total volumen de operaciones ([80]+[81]+[93]+[94]+[83]+[84]"
+        "+[125]+[126]+[127]+[128]+[86]+[95]+[96]+[97]+[98]-[79]-[99])",
         store=True,
     )
     marca_sepa = fields.Selection(
@@ -266,12 +283,10 @@ class L10nEsAeatMod303Report(models.Model):
         compute="_compute_marca_sepa",
     )
 
-    @api.depends("partner_bank_id", "result_type")
+    @api.depends("partner_bank_id")
     def _compute_marca_sepa(self):
         for record in self:
-            if record.result_type != "D":
-                record.marca_sepa = "0"
-            elif record.partner_bank_id.bank_id.country == self.env.ref("base.es"):
+            if record.partner_bank_id.bank_id.country == self.env.ref("base.es"):
                 record.marca_sepa = "1"
             elif (
                 record.partner_bank_id.bank_id.country
@@ -336,12 +351,14 @@ class L10nEsAeatMod303Report(models.Model):
 
     @api.depends("tax_line_ids", "tax_line_ids.amount")
     def _compute_total_devengado(self):
-        casillas_devengado = (3, 6, 9, 11, 13, 15, 18, 21, 24, 26)
+        casillas_devengado = (152, 3, 155, 6, 9, 11, 13, 15, 158, 18, 21, 24, 26)
         for report in self:
             tax_lines = report.tax_line_ids.filtered(
                 lambda x: x.field_number in casillas_devengado
             )
-            report.total_devengado = sum(tax_lines.mapped("amount"))
+            report.total_devengado = report.currency_id.round(
+                sum(tax_lines.mapped("amount"))
+            )
 
     @api.depends("tax_line_ids", "tax_line_ids.amount")
     def _compute_total_deducir(self):
@@ -350,25 +367,29 @@ class L10nEsAeatMod303Report(models.Model):
             tax_lines = report.tax_line_ids.filtered(
                 lambda x: x.field_number in casillas_deducir
             )
-            report.total_deducir = sum(tax_lines.mapped("amount"))
+            report.total_deducir = report.currency_id.round(
+                sum(tax_lines.mapped("amount"))
+            )
 
     @api.depends("total_devengado", "total_deducir")
     def _compute_casilla_46(self):
         for report in self:
-            report.casilla_46 = report.total_devengado - report.total_deducir
+            report.casilla_46 = report.currency_id.round(
+                report.total_devengado - report.total_deducir
+            )
 
     @api.depends("porcentaje_atribuible_estado", "casilla_46")
     def _compute_atribuible_estado(self):
         for report in self:
-            report.atribuible_estado = (
+            report.atribuible_estado = report.currency_id.round(
                 report.casilla_46 * report.porcentaje_atribuible_estado / 100.0
             )
 
     @api.depends("potential_cuota_compensar", "cuota_compensar")
     def _compute_remaining_cuota_compensar(self):
-        for record in self:
-            record.remaining_cuota_compensar = (
-                record.potential_cuota_compensar - record.cuota_compensar
+        for report in self:
+            report.remaining_cuota_compensar = report.currency_id.round(
+                report.potential_cuota_compensar - report.cuota_compensar
             )
 
     @api.depends(
@@ -376,7 +397,7 @@ class L10nEsAeatMod303Report(models.Model):
     )
     def _compute_casilla_69(self):
         for report in self:
-            report.casilla_69 = (
+            report.casilla_69 = report.currency_id.round(
                 report.atribuible_estado
                 + report.casilla_77
                 - report.cuota_compensar
@@ -385,42 +406,27 @@ class L10nEsAeatMod303Report(models.Model):
 
     @api.depends("casilla_69", "previous_result")
     def _compute_resultado_liquidacion(self):
+        # TODO: Add field 109
         for report in self:
-            report.resultado_liquidacion = report.casilla_69 - report.previous_result
+            report.resultado_liquidacion = report.currency_id.round(
+                report.casilla_69 - report.previous_result
+            )
 
     @api.depends("tax_line_ids", "tax_line_ids.amount")
     def _compute_casilla_88(self):
+        taxes_88 = (80, 81, 83, 84, 85, 86, 93, 94, 95, 96, 97, 98, 125, 126, 127, 128)
         for report in self:
-            report.casilla_88 = sum(
-                report.tax_line_ids.filtered(
-                    lambda x: x.field_number
-                    in (
-                        80,
-                        81,
-                        83,
-                        84,
-                        85,
-                        86,
-                        93,
-                        94,
-                        95,
-                        96,
-                        97,
-                        98,
-                        125,
-                        126,
-                        127,
-                        128,
-                    )
-                ).mapped("amount")
-            ) - sum(
-                report.tax_line_ids.filtered(
-                    lambda x: x.field_number
-                    in (
-                        79,
-                        99,
-                    )
-                ).mapped("amount")
+            report.casilla_88 = report.currency_id.round(
+                sum(
+                    report.tax_line_ids.filtered(
+                        lambda x: x.field_number in taxes_88
+                    ).mapped("amount")
+                )
+                - sum(
+                    report.tax_line_ids.filtered(
+                        lambda x: x.field_number in (79, 99)
+                    ).mapped("amount")
+                )
             )
 
     def _compute_allow_posting(self):
@@ -431,16 +437,22 @@ class L10nEsAeatMod303Report(models.Model):
         "resultado_liquidacion",
         "period_type",
         "devolucion_mensual",
+        "marca_sepa",
     )
     def _compute_result_type(self):
         for report in self:
-            if report.resultado_liquidacion == 0:
+            result = float_compare(
+                report.resultado_liquidacion,
+                0,
+                precision_digits=report.currency_id.decimal_places,
+            )
+            if result == 0:
                 report.result_type = "N"
-            elif report.resultado_liquidacion > 0:
+            elif result == 1:
                 report.result_type = "I"
             else:
                 if report.devolucion_mensual or report.period_type in ("4T", "12"):
-                    report.result_type = "D"
+                    report.result_type = "D" if report.marca_sepa == "1" else "X"
                 else:
                     report.result_type = "C"
 
@@ -478,7 +490,7 @@ class L10nEsAeatMod303Report(models.Model):
             if mod303.result_type == "D" and not mod303.partner_bank_id:
                 msg = _("Select an account for receiving the money")
         if msg:
-            raise exceptions.Warning(msg)
+            raise exceptions.UserError(msg)
         return super(L10nEsAeatMod303Report, self).button_confirm()
 
     @api.constrains("potential_cuota_compensar", "cuota_compensar")
@@ -532,16 +544,12 @@ class L10nEsAeatMod303ReportActivityCode(models.Model):
     _order = "period_type,code,id"
     _description = "AEAT 303 Report Activities Codes"
 
-    period_type = fields.Selection(
-        selection=[("4T", "4T"), ("12", "December")],
-        required=True,
-    )
-    code = fields.Integer(
-        string="Activity code",
-        required=True,
-    )
+    period_type = fields.Selection(selection=[("4T", "4T"), ("12", "December")])
+    code = fields.Char(string="Activity code", required=True)
     name = fields.Char(
         string="Activity name",
         translate=True,
         required=True,
     )
+    date_start = fields.Date(string="Starting date")
+    date_end = fields.Date(string="Ending date")

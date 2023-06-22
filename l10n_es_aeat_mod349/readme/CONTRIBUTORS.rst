@@ -9,9 +9,9 @@
   * Luis M. Ontalba
   * Carlos Daudén
 
-* Eficent (http://www.eficent.com)
+* ForgeFlow (http://www.forgeflow.com)
 
-  * Jordi Ballester <jordi.ballester@eficent.com>
+  * Jordi Ballester <jordi.ballester@forgeflow.com>
   * Aarón Henríquez
 
 * Aitor Bouzas <aitor.bouzas@adaptivecity.com>
@@ -22,3 +22,9 @@
 * `Sygel <https://www.sygel.es>`__:
 
   * Valentin Vinagre
+  * Manuel Regidor
+
+* Jairo Llopis (Moduon)
+* NuoBiT (http://www.nuobit.com)
+
+  * Eric Antones <eantones@nuobit.com>

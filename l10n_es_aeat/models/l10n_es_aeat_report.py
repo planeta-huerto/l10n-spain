@@ -67,7 +67,7 @@ class L10nEsAeatReport(models.AbstractModel):
         return self._aeat_number
 
     def _get_export_config(self, date):
-        model = self.env["ir.model"].search([("model", "=", self._name)])
+        model = self.env["ir.model"].sudo().search([("model", "=", self._name)])
         return self.env["aeat.model.export.config"].search(
             [
                 ("model_id", "=", model.id),
@@ -167,9 +167,6 @@ class L10nEsAeatReport(models.AbstractModel):
         tracking=True,
     )
     name = fields.Char(string="Report identifier", size=13, copy=False)
-    model_id = fields.Many2one(
-        comodel_name="ir.model", string="Model", compute="_compute_report_model"
-    )
     export_config_id = fields.Many2one(
         comodel_name="aeat.model.export.config",
         string="Export config",
@@ -177,7 +174,7 @@ class L10nEsAeatReport(models.AbstractModel):
             (
                 "model_id",
                 "=",
-                self.env["ir.model"].search([("model", "=", self._name)]).id,
+                self.env["ir.model"].sudo().search([("model", "=", self._name)]).id,
             )
         ],
         compute="_compute_export_config_id",
@@ -246,6 +243,9 @@ class L10nEsAeatReport(models.AbstractModel):
         help="Company bank account used for the presentation",
         domain="[('acc_type', '=', 'iban'), ('partner_id', '=', partner_id)]",
     )
+    error_count = fields.Integer(
+        compute="_compute_error_count",
+    )
     _sql_constraints = [
         (
             "name_uniq",
@@ -254,15 +254,13 @@ class L10nEsAeatReport(models.AbstractModel):
         )
     ]
 
-    def _compute_report_model(self):
-        for report in self:
-            report.model_id = (
-                self.env["ir.model"].search([("model", "=", report._name)]).id
-            )
-
     def _compute_allow_posting(self):
         for report in self:
             report.allow_posting = False
+
+    def _compute_error_count(self):
+        """To be overridden by each report."""
+        self.error_count = 0
 
     @api.constrains("statement_type", "previous_number")
     def _check_previous_number(self):

@@ -112,6 +112,27 @@ class L10nEsAeatMod347Report(models.Model):
         string="Real Estate Records",
     )
 
+    def _error_count(self, model):
+        records_error_group = self.env["l10n.es.aeat.mod347.%s" % model].read_group(
+            domain=[("check_ok", "=", False), ("report_id", "in", self.ids)],
+            fields=["report_id"],
+            groupby=["report_id"],
+        )
+        return {
+            rec["report_id"][0]: rec["report_id_count"] for rec in records_error_group
+        }
+
+    def _compute_error_count(self):
+        ret_val = super()._compute_error_count()
+        partner_records_error_dict = self._error_count("partner_record")
+        real_estate_record_error_dict = self._error_count("real_estate_record")
+
+        for report in self:
+            report.error_count += partner_records_error_dict.get(
+                report.id, 0
+            ) + real_estate_record_error_dict.get(report.id, 0)
+        return ret_val
+
     def button_confirm(self):
         """Different check out in report"""
         for item in self:
@@ -188,7 +209,7 @@ class L10nEsAeatMod347Report(models.Model):
         self.ensure_one()
         tax_templates = map_rec.mapped("tax_ids")
         if not tax_templates:
-            raise exceptions.Warning(_("No Tax Mapping was found"))
+            raise exceptions.UserError(_("No Tax Mapping was found"))
         return self.get_taxes_from_templates(tax_templates)
 
     @api.model
@@ -213,6 +234,7 @@ class L10nEsAeatMod347Report(models.Model):
             }
 
     def _create_partner_records(self, key, map_ref, partner_record=None):
+        sign = -1 if key == "B" else 1
         partner_record_obj = self.env["l10n.es.aeat.mod347.partner_record"]
         partner_obj = self.env["res.partner"]
         map_line = self.env.ref(map_ref)
@@ -235,7 +257,7 @@ class L10nEsAeatMod347Report(models.Model):
                 "partner_id": partner.id,
                 "representative_vat": "",
                 "operation_key": key,
-                "amount": (-1 if key == "B" else 1) * group["balance"],
+                "amount": sign * group["balance"],
             }
             vals.update(self._get_partner_347_identification(partner))
             move_groups = self.env["account.move.line"].read_group(
@@ -249,7 +271,7 @@ class L10nEsAeatMod347Report(models.Model):
                     0,
                     {
                         "move_id": move_group["move_id"][0],
-                        "amount": move_group["balance"],
+                        "amount": sign * move_group["balance"],
                     },
                 )
                 for move_group in move_groups
@@ -331,6 +353,7 @@ class L10nEsAeatMod347PartnerRecord(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin", "portal.mixin"]
     _description = "Partner Record"
     _rec_name = "partner_vat"
+    _order = "check_ok asc,id"
 
     @api.model
     def _default_record_id(self):
@@ -362,22 +385,22 @@ class L10nEsAeatMod347PartnerRecord(models.Model):
         selection=[
             (
                 "A",
-                u"A - Adquisiciones de bienes y servicios superiores al " u"límite (1)",
+                "A - Adquisiciones de bienes y servicios superiores al " "límite (1)",
             ),
-            ("B", u"B - Entregas de bienes y servicios superiores al límite (1)"),
-            ("C", u"C - Cobros por cuenta de terceros superiores al límite (3)"),
+            ("B", "B - Entregas de bienes y servicios superiores al límite (1)"),
+            ("C", "C - Cobros por cuenta de terceros superiores al límite (3)"),
             (
                 "D",
-                u"D - Adquisiciones efectuadas por Entidades Públicas "
-                u"(...) superiores al límite (1)",
+                "D - Adquisiciones efectuadas por Entidades Públicas "
+                "(...) superiores al límite (1)",
             ),
             (
                 "E",
-                u"E - Subvenciones, auxilios y ayudas satisfechas por Ad. "
-                u"Públicas superiores al límite (1)",
+                "E - Subvenciones, auxilios y ayudas satisfechas por Ad. "
+                "Públicas superiores al límite (1)",
             ),
-            ("F", u"F - Ventas agencia viaje"),
-            ("G", u"G - Compras agencia viaje"),
+            ("F", "F - Ventas agencia viaje"),
+            ("G", "G - Compras agencia viaje"),
         ],
     )
     partner_id = fields.Many2one(
@@ -500,18 +523,24 @@ class L10nEsAeatMod347PartnerRecord(models.Model):
         store=True,
         help="Checked if this record is OK",
     )
+    error_text = fields.Char(compute="_compute_check_ok", store=True)
 
     @api.depends(
         "partner_country_code", "partner_state_code", "partner_vat", "community_vat"
     )
     def _compute_check_ok(self):
         for record in self:
-            record.check_ok = (
-                record.partner_country_code
-                and record.partner_state_code
-                and record.partner_state_code.isdigit()
-                and (record.partner_vat or record.partner_country_code != "ES")
-            )
+            errors = []
+            if not record.partner_country_code:
+                errors.append(_("Without country code"))
+            if not record.partner_state_code:
+                errors.append(_("Without state code"))
+            if record.partner_state_code and not record.partner_state_code.isdigit():
+                errors.append(_("State code can only contain digits"))
+            if not (record.partner_vat or record.partner_country_code != "ES"):
+                errors.append(_("VAT must be defined for Spanish Contacts"))
+            record.check_ok = not bool(errors)
+            record.error_text = ", ".join(errors)
 
     @api.onchange("partner_id")
     def _onchange_partner_id(self):
@@ -521,28 +550,25 @@ class L10nEsAeatMod347PartnerRecord(models.Model):
 
     @api.depends("move_record_ids.move_id.date", "report_id.year")
     def calculate_quarter_totals(self):
-        def calc_amount_by_quarter(records, sign, year, month_start):
+        def calc_amount_by_quarter(records, year, month_start):
             day_start = 1
             month_end = month_start + 2
             day_end = monthrange(year, month_end)[1]
             date_start = datetime.date(year, month_start, day_start)
             date_end = datetime.date(year, month_end, day_end)
-            return (
-                sum(
-                    records.filtered(
-                        lambda x: date_start <= x.move_id.date <= date_end
-                    ).mapped("amount")
-                )
-            ) * sign
+            return sum(
+                records.filtered(
+                    lambda x: date_start <= x.move_id.date <= date_end
+                ).mapped("amount")
+            )
 
         for record in self:
-            sign = -1 if record.operation_key == "B" else 1
             year = record.report_id.year
             moves = record.move_record_ids
-            record.first_quarter = calc_amount_by_quarter(moves, sign, year, 1)
-            record.second_quarter = calc_amount_by_quarter(moves, sign, year, 4)
-            record.third_quarter = calc_amount_by_quarter(moves, sign, year, 7)
-            record.fourth_quarter = calc_amount_by_quarter(moves, sign, year, 10)
+            record.first_quarter = calc_amount_by_quarter(moves, year, 1)
+            record.second_quarter = calc_amount_by_quarter(moves, year, 4)
+            record.third_quarter = calc_amount_by_quarter(moves, year, 7)
+            record.fourth_quarter = calc_amount_by_quarter(moves, year, 10)
 
     def action_exception(self):
         self.write({"state": "exception"})
@@ -627,6 +653,7 @@ class L10nEsAeatMod347RealStateRecord(models.Model):
     _name = "l10n.es.aeat.mod347.real_estate_record"
     _description = "Real Estate Record"
     _rec_name = "reference"
+    _order = "check_ok asc,id"
 
     @api.model
     def _default_record_id(self):
@@ -699,11 +726,16 @@ class L10nEsAeatMod347RealStateRecord(models.Model):
         store=True,
         help="Checked if this record is OK",
     )
+    error_text = fields.Char(string="Errors", compute="_compute_check_ok", store=True)
 
     @api.depends("state_code")
     def _compute_check_ok(self):
         for record in self:
-            record.check_ok = bool(record.state_code)
+            errors = []
+            if not record.state_code:
+                errors.append(_("Without state code"))
+            record.check_ok = not bool(errors)
+            record.error_text = ", ".join(errors)
 
     @api.onchange("partner_id")
     def _onchange_partner_id(self):

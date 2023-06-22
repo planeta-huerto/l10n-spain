@@ -22,14 +22,31 @@ class L10nEsAccountStatementImportN43(common.TransactionCase):
                 "partner_id": cls.env.company.partner_id.id,
             }
         )
+        cls.partner_bank_01 = cls.env["res.partner.bank"].create(
+            {
+                "acc_number": "000000000000001000000000",
+                "company_id": cls.env.company.id,
+                "partner_id": cls.env.company.partner_id.id,
+            }
+        )
         eur_currency = cls.env.ref("base.EUR")
         cls.journal = cls.env["account.journal"].create(
             {
                 "type": "bank",
                 "name": "Test N43 bank",
-                "code": "BNKN43",
+                "code": "BN43",
                 "company_id": cls.env.company.id,
                 "bank_account_id": cls.partner_bank.id,
+                "currency_id": eur_currency.id,
+            }
+        )
+        cls.journal_01 = cls.env["account.journal"].create(
+            {
+                "type": "bank",
+                "name": "Test N43 bank",
+                "code": "BN432",
+                "company_id": cls.env.company.id,
+                "bank_account_id": cls.partner_bank_01.id,
                 "currency_id": eur_currency.id,
             }
         )
@@ -43,12 +60,28 @@ class L10nEsAccountStatementImportN43(common.TransactionCase):
             .create({"statement_file": n43_file, "statement_filename": "Test"})
         )
 
+    def test_import_n43_multi(self):
+        n43_file_path = get_module_resource(
+            "l10n_es_account_statement_import_n43", "tests", "testmulti.n43"
+        )
+        n43_file = base64.b64encode(open(n43_file_path, "rb").read())
+        self.import_wizard.statement_file = n43_file
+        action = self.import_wizard.with_context(journal_id=False).import_file_button()
+        self.assertTrue(action)
+        statements = self.env["account.bank.statement"].search(
+            [("journal_id", "=", self.journal.id)]
+        )
+        self.assertEqual(1, len(statements))
+        statements = self.env["account.bank.statement"].search(
+            [("journal_id", "=", self.journal_01.id)]
+        )
+        self.assertEqual(1, len(statements))
+
     def test_import_n43(self):
         action = self.import_wizard.import_file_button()
         self.assertTrue(action)
-        self.assertTrue(action.get("context").get("statement_line_ids"))
-        statements = self.env["account.bank.statement.line"].browse(
-            action["context"]["statement_line_ids"]
+        statements = self.env["account.bank.statement.line"].search(
+            [("statement_id.journal_id", "=", self.journal.id)]
         )
         statement = statements[2].statement_id
         self.assertEqual(statement.date, fields.Date.to_date("2016-02-01"))
@@ -65,8 +98,7 @@ class L10nEsAccountStatementImportN43(common.TransactionCase):
         self.journal.n43_date_type = "fecha_oper"
         action = self.import_wizard.import_file_button()
         self.assertTrue(action)
-        self.assertTrue(action.get("context").get("statement_line_ids"))
-        statements = self.env["account.bank.statement.line"].browse(
-            action["context"]["statement_line_ids"]
+        statements = self.env["account.bank.statement.line"].search(
+            [("statement_id.journal_id", "=", self.journal.id)]
         )
         self.assertEqual(statements[2].date, fields.Date.to_date("2016-05-26"))

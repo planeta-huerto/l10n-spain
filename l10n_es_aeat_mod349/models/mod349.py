@@ -4,8 +4,8 @@
 # Copyright 2014-2021 Tecnativa - Pedro M. Baeza
 # Copyright 2016 - Tecnativa - Angel Moya <odoo@tecnativa.com>
 # Copyright 2017 - Tecnativa - Luis M. Ontalba <luis.martinez@tecnativa.com>
-# Copyright 2017 - Eficent Business and IT Consulting Services, S.L.
-#                  <contact@eficent.com>
+# Copyright 2017 - ForgeFlow, S.L.
+#                  <contact@forgeflow.com>
 # Copyright 2018 - Tecnativa - Carlos Dauden
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 import math
@@ -70,6 +70,23 @@ class Mod349(models.Model):
         states={"confirmed": [("readonly", True)]},
     )
     number = fields.Char(default="349")
+
+    def _compute_error_count(self):
+        ret_val = super()._compute_error_count()
+        partner_records_error_dict = self.env[
+            "l10n.es.aeat.mod349.partner_record"
+        ].read_group(
+            domain=[("partner_record_ok", "=", False), ("report_id", "in", self.ids)],
+            fields=["report_id"],
+            groupby=["report_id"],
+        )
+        partner_records_error_dict = {
+            rec["report_id"][0]: rec["report_id_count"]
+            for rec in partner_records_error_dict
+        }
+        for report in self:
+            report.error_count += partner_records_error_dict.get(report.id, 0)
+        return ret_val
 
     @api.depends("partner_record_ids", "partner_record_ids.total_operation_amount")
     def _compute_report_regular_totals(self):
@@ -182,14 +199,13 @@ class Mod349(models.Model):
         for refund_detail in self.partner_refund_detail_ids:
             move_line = refund_detail.refund_line_id
             origin_invoice = move_line.move_id.reversed_entry_id
-            groups.setdefault(origin_invoice, refund_detail_obj)
-            groups[origin_invoice] += refund_detail
-        for origin_invoice in groups:
-            refund_details = groups[origin_invoice]
+            key = (origin_invoice, move_line.l10n_es_aeat_349_operation_key)
+            groups.setdefault(key, refund_detail_obj)
+            groups[key] += refund_detail
+        for (origin_invoice, op_key), refund_details in groups.items():
             refund_detail = first(refund_details)
             move_line = refund_detail.refund_line_id
             partner = move_line.partner_id
-            op_key = move_line.l10n_es_aeat_349_operation_key
             if not origin_invoice:
                 # TODO: Instead continuing, generate an empty record and a msg
                 continue
@@ -323,7 +339,7 @@ class Mod349(models.Model):
         map_lines = self.env["aeat.349.map.line"].search([])
         tax_templates = map_lines.mapped("tax_tmpl_ids")
         if not tax_templates:
-            raise exceptions.Warning(_("No Tax Mapping was found"))
+            raise exceptions.UserError(_("No Tax Mapping was found"))
         return self.get_taxes_from_templates(tax_templates)
 
     def _cleanup_report(self):
@@ -382,7 +398,7 @@ class Mod349(models.Model):
         for item in self:
             for partner_record in item.partner_record_ids:
                 if not partner_record.partner_record_ok:
-                    raise exceptions.Warning(
+                    raise exceptions.UserError(
                         _(
                             "All partner records fields (country, VAT number) "
                             "must be filled."
@@ -390,7 +406,7 @@ class Mod349(models.Model):
                     )
             for partner_record in item.partner_refund_ids:
                 if not partner_record.partner_refund_ok:
-                    raise exceptions.Warning(
+                    raise exceptions.UserError(
                         _(
                             "All partner refunds fields (country, VAT number) "
                             "must be filled."
@@ -402,7 +418,7 @@ class Mod349(models.Model):
         for item in self:
             # Check Full name (contact_name)
             if not item.contact_name or len(item.contact_name.split(" ")) < 2:
-                raise exceptions.Warning(
+                raise exceptions.UserError(
                     _("Contact name (Full name) must have name and surname")
                 )
 
@@ -420,7 +436,7 @@ class Mod349PartnerRecord(models.Model):
 
     _name = "l10n.es.aeat.mod349.partner_record"
     _description = "AEAT 349 Model - Partner record"
-    _order = "operation_key asc"
+    _order = "partner_record_ok asc, operation_key asc, id"
     _rec_name = "partner_vat"
 
     def _selection_operation_key(self):
@@ -432,11 +448,15 @@ class Mod349PartnerRecord(models.Model):
     def _compute_partner_record_ok(self):
         """Checks if all line fields are filled."""
         for record in self:
-            record.partner_record_ok = bool(
-                record.partner_vat
-                and record.country_id
-                and record.total_operation_amount
-            )
+            errors = []
+            if not record.partner_vat:
+                errors.append(_("Without VAT"))
+            if not record.country_id:
+                errors.append(_("Without Country"))
+            if not record.total_operation_amount:
+                errors.append(_("Without Total Operation Amount"))
+            record.partner_record_ok = bool(not errors)
+            record.error_text = ", ".join(errors)
 
     report_id = fields.Many2one(
         comodel_name="l10n.es.aeat.mod349.report",
@@ -461,6 +481,11 @@ class Mod349PartnerRecord(models.Model):
         compute="_compute_partner_record_ok",
         string="Partner Record OK",
         help="Checked if partner record is OK",
+        store=True,
+    )
+    error_text = fields.Char(
+        compute="_compute_partner_record_ok",
+        store=True,
     )
     record_detail_ids = fields.One2many(
         comodel_name="l10n.es.aeat.mod349.partner_record_detail",
@@ -640,4 +665,5 @@ class Mod349PartnerRefundDetail(models.Model):
     date = fields.Date(
         related="refund_line_id.date",
         readonly=True,
+        store=True,  # Necessary for sorting records
     )

@@ -40,7 +40,6 @@ Para instalar esté módulo necesita:
 
 #. Libreria Python Zeep, se puede instalar con el comando 'pip install zeep'
 #. Libreria Python Requests, se puede instalar con el comando 'pip install requests'
-#. Libreria pyOpenSSL, versión 0.15 o posterior
 
 y el módulo `queue_job` que se encuentra en:
 
@@ -155,7 +154,8 @@ Contributors
 
   * Pedro M. Baeza
   * João Marques
-* Rafa Martínez - Punt Sistemes S.L.U. <rmartinez@puntsistemes.es>
+* Lois Rilo Antelo <lois.rilo@forgeflow.com>
+* Eduardo de Miguel (edu@moduon.team)
 
 Maintainers
 ~~~~~~~~~~~

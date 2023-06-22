@@ -1,2 +1,3 @@
+cryptography==2.6.1
 mock
-odoo-test-helper @ git+https://github.com/OCA/odoo-test-helper@master
+odoo-test-helper
